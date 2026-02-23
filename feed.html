@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="이모지월드 피드 — 이모지 아트와 소셜 콘텐츠를 탐색하세요.">
+    <meta name="theme-color" content="#0f0c29">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <title>이모지월드 — 피드</title>
+    <link rel="stylesheet" href="app-common.css">
+</head>
+<body>
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Post Creation Modal -->
+    <div class="modal-overlay modal-overlay--hidden" id="create-modal">
+        <div class="modal create-modal">
+            <div class="create-modal__header">
+                <h2 class="modal__title" style="margin:0">새 포스트</h2>
+                <button class="create-modal__close" id="create-close">✕</button>
+            </div>
+            <div class="image-upload-area" id="upload-area">
+                <input type="file" accept="image/*" id="image-input" style="display:none">
+                <span class="image-upload-area__icon">📸</span>
+                <div class="image-upload-area__text">사진을 선택하거나 여기에 끌어놓으세요</div>
+                <div class="image-upload-area__hint">JPG, PNG, WEBP · 최대 5MB</div>
+            </div>
+            <img class="image-preview" id="image-preview" alt="미리보기">
+            <textarea class="caption-input" id="caption-input" placeholder="문구를 입력하세요... ✨" maxlength="200"></textarea>
+            <div class="char-count"><span id="caption-char-count">0</span>/200</div>
+            <button class="login-btn" id="create-post-btn" disabled style="margin-top:12px">📤 공유하기</button>
+        </div>
+    </div>
+
+    <div class="app-shell page-enter">
+        <!-- Top Navigation -->
+        <header class="top-nav">
+            <span class="top-nav__logo">이모지월드</span>
+            <div class="top-nav__actions">
+                <button class="top-nav__btn" aria-label="알림" title="알림" style="position:relative;">
+                    🔔<span class="badge"></span>
+                </button>
+                <button class="top-nav__btn" aria-label="메시지" title="메시지">✉️</button>
+            </div>
+        </header>
+
+        <!-- Story Bar -->
+        <section class="story-bar" id="story-bar" aria-label="스토리"></section>
+
+        <div class="divider"></div>
+
+        <!-- Feed -->
+        <main id="feed" aria-label="피드"></main>
+
+        <!-- Bottom Tab Bar -->
+        <nav class="tab-bar" aria-label="메인 내비게이션">
+            <a href="feed.html" class="tab-bar__item tab-bar__item--active" aria-current="page">
+                <span>🏠</span>
+                <span class="tab-bar__label">홈</span>
+            </a>
+            <button class="tab-bar__item" aria-label="탐색" onclick="showToast('🔍 탐색 기능 준비 중!', 'info')">
+                <span>🔍</span>
+                <span class="tab-bar__label">탐색</span>
+            </button>
+            <button class="tab-bar__item" aria-label="새 포스트" id="create-tab-btn">
+                <span>➕</span>
+                <span class="tab-bar__label">만들기</span>
+            </button>
+            <button class="tab-bar__item" aria-label="알림" onclick="showToast('❤️ 알림이 없습니다', 'info')">
+                <span>❤️</span>
+                <span class="tab-bar__label">알림</span>
+            </button>
+            <a href="profile.html" class="tab-bar__item" aria-label="프로필">
+                <span id="tab-profile-emoji">👤</span>
+                <span class="tab-bar__label">프로필</span>
+            </a>
+        </nav>
+    </div>
+
+    <script src="auth.js"></script>
+    <script src="data.js"></script>
+    <script>
+        // ── HTML 이스케이프 (XSS 방지) ──
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        if (!requireAuth()) { throw new Error('auth redirect'); }
+        var user = getCurrentUser();
+        if (!user) { window.location.href = 'login.html'; throw new Error('no user'); }
+        var likedPosts = getLikedPosts();
+        var savedPosts = getSavedPosts();
+
+        // ── 토스트 ──
+        function showToast(msg, type) {
+            var container = document.getElementById('toast-container');
+            if (!container) return;
+            var toast = document.createElement('div');
+            toast.className = 'toast toast--' + (type || 'info');
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(function () {
+                toast.classList.add('toast--out');
+                setTimeout(function () { toast.remove(); }, 300);
+            }, 2500);
+        }
+
+        // 프로필 탭에 내 이모지 표시
+        var tabEmoji = document.getElementById('tab-profile-emoji');
+        if (tabEmoji && user) tabEmoji.textContent = user.emoji;
+
+        // ── 스토리 바 ──
+        (function renderStories() {
+            var storyBar = document.getElementById('story-bar');
+            if (!storyBar || !user) return;
+            storyBar.appendChild(createStoryItem(user.emoji, '내 스토리'));
+            SAMPLE_USERS.forEach(function (u) {
+                storyBar.appendChild(createStoryItem(u.emoji, u.nickname));
+            });
+        })();
+
+        function createStoryItem(emoji, name) {
+            var item = document.createElement('div');
+            item.className = 'story-item';
+            item.innerHTML =
+                '<div class="story-avatar"><div class="story-avatar__inner">' + escapeHtml(emoji) + '</div></div>' +
+                '<span class="story-name">' + escapeHtml(name) + '</span>';
+            item.addEventListener('click', function () {
+                showToast(emoji + ' ' + name + '의 스토리', 'info');
+            });
+            return item;
+        }
+
+        // ── 이모지 리액션 바 생성 ──
+        function createReactionBar(postId) {
+            var wrap = document.createElement('div');
+            wrap.className = 'reaction-bar';
+            wrap.setAttribute('data-reaction-post', postId);
+
+            var reactions = getPostReactions(postId);
+            var quickEmojis = ['❤️', '😍', '😂', '🔥', '👏', '💯'];
+
+            // 기존 리액션 + 빠른 이모지 합치기
+            var allEmojis = {};
+            quickEmojis.forEach(function (e) { allEmojis[e] = reactions[e] || null; });
+            Object.keys(reactions).forEach(function (e) { allEmojis[e] = reactions[e]; });
+
+            Object.keys(allEmojis).forEach(function (emoji) {
+                var data = allEmojis[emoji];
+                var btn = document.createElement('button');
+                btn.className = 'reaction-btn' + (data && data.mine ? ' reaction-btn--active' : '');
+                btn.innerHTML = emoji + (data && data.count ? '<span class="reaction-btn__count">' + data.count + '</span>' : '');
+                btn.addEventListener('click', function () {
+                    var updated = toggleReaction(postId, emoji);
+                    refreshReactionBar(postId);
+                });
+                wrap.appendChild(btn);
+            });
+
+            // + 더보기 버튼
+            var addBtn = document.createElement('button');
+            addBtn.className = 'reaction-add';
+            addBtn.textContent = '+';
+            addBtn.addEventListener('click', function (e) {
+                e.stopPropagation();
+                openReactionPicker(postId, wrap);
+            });
+            wrap.appendChild(addBtn);
+
+            return wrap;
+        }
+
+        function refreshReactionBar(postId) {
+            var old = document.querySelector('[data-reaction-post="' + postId + '"]');
+            if (!old || !old.parentNode) return;
+            var newBar = createReactionBar(postId);
+            old.parentNode.replaceChild(newBar, old);
+        }
+
+        function openReactionPicker(postId, barEl) {
+            // 기존 피커가 있으면 제거
+            var existing = barEl.querySelector('.reaction-picker');
+            if (existing) { existing.remove(); return; }
+
+            var picker = document.createElement('div');
+            picker.className = 'reaction-picker';
+            REACTION_EMOJIS.forEach(function (emoji) {
+                var btn = document.createElement('button');
+                btn.className = 'reaction-picker__emoji';
+                btn.textContent = emoji;
+                btn.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    toggleReaction(postId, emoji);
+                    picker.remove();
+                    refreshReactionBar(postId);
+                    showToast(emoji + ' 리액션!', 'success');
+                });
+                picker.appendChild(btn);
+            });
+            barEl.style.position = 'relative';
+            barEl.appendChild(picker);
+
+            // 바깥 클릭 시 닫기
+            setTimeout(function () {
+                document.addEventListener('click', function closePicker() {
+                    picker.remove();
+                    document.removeEventListener('click', closePicker);
+                }, { once: true });
+            }, 10);
+        }
+
+        // ── 피드 렌더링 ──
+        function renderFeed() {
+            var feedEl = document.getElementById('feed');
+            if (!feedEl) return;
+            feedEl.innerHTML = '';
+
+            // 1. 유저가 올린 이미지 포스트
+            var userPosts = getUserPosts();
+            userPosts.forEach(function (post) {
+                feedEl.appendChild(createImagePostCard(post));
+            });
+
+            // 2. 샘플 이미지 + 이모지 아트 포스트 교차 배치
+            var emojiPosts = generatePosts();
+            var imgIdx = 0;
+            emojiPosts.forEach(function (post, i) {
+                // 매 3번째 포스트 앞에 샘플 이미지 포스트 삽입
+                if (i > 0 && i % 3 === 0 && imgIdx < SAMPLE_IMAGE_POSTS.length) {
+                    feedEl.appendChild(createSampleImageCard(SAMPLE_IMAGE_POSTS[imgIdx]));
+                    imgIdx++;
+                }
+                var isLiked = likedPosts.indexOf(post.id) > -1;
+                var isSaved = savedPosts.indexOf(post.id) > -1;
+                feedEl.appendChild(createEmojiPostCard(post, isLiked, isSaved));
+            });
+            // 남은 이미지 포스트 추가
+            while (imgIdx < SAMPLE_IMAGE_POSTS.length) {
+                feedEl.appendChild(createSampleImageCard(SAMPLE_IMAGE_POSTS[imgIdx]));
+                imgIdx++;
+            }
+        }
+        renderFeed();
+
+        // ── 샘플 이미지 포스트 카드 ──
+        function createSampleImageCard(post) {
+            var card = document.createElement('article');
+            card.className = 'feed-post glass-card';
+
+            var safeNick = escapeHtml(post.user.nickname);
+            var safeEmoji = escapeHtml(post.user.emoji);
+            var safeCaption = escapeHtml(post.caption);
+            var likeCount = post.likes || 0;
+            var isLiked = likedPosts.indexOf(post.id) > -1;
+            var isSaved = savedPosts.indexOf(post.id) > -1;
+            if (isLiked) likeCount++;
+
+            card.innerHTML =
+                '<div class="feed-post__header">' +
+                    '<div class="feed-post__avatar">' + safeEmoji + '</div>' +
+                    '<div class="feed-post__user-info">' +
+                        '<div class="feed-post__nickname">' + safeNick + '</div>' +
+                        '<div class="feed-post__time">' + escapeHtml(post.time) + '</div>' +
+                    '</div>' +
+                    '<button class="feed-post__more" aria-label="더보기">⋯</button>' +
+                '</div>' +
+                '<img class="feed-post__image" src="' + escapeHtml(post.image) + '" alt="포스트 이미지" loading="lazy">' +
+                '<div class="feed-post__actions">' +
+                    '<button class="feed-post__action like-btn ' + (isLiked ? 'feed-post__action--liked' : '') + '" aria-label="좋아요">' +
+                        (isLiked ? '❤️' : '🤍') +
+                    '</button>' +
+                    '<button class="feed-post__action comment-btn" aria-label="리액션">💬</button>' +
+                    '<button class="feed-post__action share-btn" aria-label="공유">📤</button>' +
+                    '<button class="feed-post__action feed-post__action--spacer save-btn ' + (isSaved ? 'feed-post__action--saved' : '') + '" aria-label="저장">' +
+                        (isSaved ? '🔖' : '🏷️') +
+                    '</button>' +
+                '</div>' +
+                '<div class="feed-post__likes">좋아요 <span class="like-count">' + likeCount.toLocaleString() + '</span>개</div>' +
+                '<div class="feed-post__caption"><strong>' + safeNick + '</strong> ' + safeCaption + '</div>';
+
+            // 이모지 리액션 바
+            card.appendChild(createReactionBar(post.id));
+
+            // 좋아요
+            var likeBtn = card.querySelector('.like-btn');
+            var likeCountEl = card.querySelector('.like-count');
+            if (likeBtn) {
+                likeBtn.addEventListener('click', function () {
+                    var nowLiked = toggleLike(post.id);
+                    likeBtn.textContent = nowLiked ? '❤️' : '🤍';
+                    likeBtn.classList.toggle('feed-post__action--liked', nowLiked);
+                    var count = nowLiked ? post.likes + 1 : post.likes;
+                    if (likeCountEl) likeCountEl.textContent = count.toLocaleString();
+                    if (nowLiked) showToast('❤️ 좋아요!', 'success');
+                });
+            }
+
+            // 저장
+            var saveBtn = card.querySelector('.save-btn');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', function () {
+                    var nowSaved = toggleSave(post.id);
+                    saveBtn.textContent = nowSaved ? '🔖' : '🏷️';
+                    saveBtn.classList.toggle('feed-post__action--saved', nowSaved);
+                    showToast(nowSaved ? '🔖 저장됨!' : '🏷️ 저장 해제', nowSaved ? 'success' : 'info');
+                });
+            }
+
+            // 댓글(리액션) + 공유
+            var commentBtn = card.querySelector('.comment-btn');
+            if (commentBtn) commentBtn.addEventListener('click', function () { showToast('💬 이모지로 리액션하세요!', 'info'); });
+            var shareBtn = card.querySelector('.share-btn');
+            if (shareBtn) shareBtn.addEventListener('click', function () { showToast('📤 공유 링크가 복사되었습니다!', 'success'); });
+
+            // 더블 탭 좋아요
+            var imgEl = card.querySelector('.feed-post__image');
+            var lastTap = 0;
+            if (imgEl) {
+                imgEl.addEventListener('click', function () {
+                    var now = Date.now();
+                    if (now - lastTap < 400) {
+                        if (likedPosts.indexOf(post.id) === -1) {
+                            toggleLike(post.id);
+                            likedPosts = getLikedPosts();
+                            if (likeBtn) { likeBtn.textContent = '❤️'; likeBtn.classList.add('feed-post__action--liked'); }
+                            if (likeCountEl) likeCountEl.textContent = (post.likes + 1).toLocaleString();
+                        }
+                        var heart = document.createElement('span');
+                        heart.className = 'double-tap-heart';
+                        heart.textContent = '❤️';
+                        imgEl.style.position = 'relative';
+                        card.insertBefore(heart, imgEl.nextSibling);
+                        setTimeout(function () { heart.remove(); }, 900);
+                    }
+                    lastTap = now;
+                });
+            }
+
+            return card;
+        }
+
+        // ── 이미지 포스트 카드 ──
+        function createImagePostCard(post) {
+            var card = document.createElement('article');
+            card.className = 'feed-post glass-card';
+
+            var safeCaption = escapeHtml(post.caption);
+            var userNick = escapeHtml(user.nickname || '나');
+            var userEmoji = escapeHtml(user.emoji || '😊');
+
+            card.innerHTML =
+                '<div class="feed-post__header">' +
+                    '<div class="feed-post__avatar">' + userEmoji + '</div>' +
+                    '<div class="feed-post__user-info">' +
+                        '<div class="feed-post__nickname">' + userNick + '</div>' +
+                        '<div class="feed-post__time">방금 전</div>' +
+                    '</div>' +
+                    '<button class="feed-post__more" aria-label="더보기">⋯</button>' +
+                '</div>' +
+                '<img class="feed-post__image" src="' + post.image + '" alt="포스트 이미지">' +
+                '<div class="feed-post__caption"><strong>' + userNick + '</strong> ' + safeCaption + '</div>';
+
+            // 이모지 리액션 바 추가
+            card.appendChild(createReactionBar(post.id));
+
+            // 더블 탭 좋아요
+            var imgEl = card.querySelector('.feed-post__image');
+            var lastTap = 0;
+            if (imgEl) {
+                imgEl.addEventListener('click', function () {
+                    var now = Date.now();
+                    if (now - lastTap < 400) {
+                        toggleReaction(post.id, '❤️');
+                        refreshReactionBar(post.id);
+                        var heart = document.createElement('span');
+                        heart.className = 'double-tap-heart';
+                        heart.textContent = '❤️';
+                        imgEl.style.position = 'relative';
+                        imgEl.parentNode.insertBefore(heart, imgEl.nextSibling);
+                        setTimeout(function () { heart.remove(); }, 900);
+                    }
+                    lastTap = now;
+                });
+            }
+
+            return card;
+        }
+
+        // ── 이모지 아트 포스트 카드 ──
+        function createEmojiPostCard(post, isLiked, isSaved) {
+            var card = document.createElement('article');
+            card.className = 'feed-post glass-card';
+            card.setAttribute('data-post-id', post.id);
+
+            var artHtml = '';
+            post.art.forEach(function (emoji) {
+                artHtml += '<span class="emoji-art__cell">' + emoji + '</span>';
+            });
+
+            var likeCount = isLiked ? post.likes + 1 : post.likes;
+            var safeNick = escapeHtml(post.user.nickname);
+            var safeEmoji = escapeHtml(post.user.emoji);
+            var safeCaption = escapeHtml(post.caption);
+
+            card.innerHTML =
+                '<div class="feed-post__header">' +
+                    '<div class="feed-post__avatar">' + safeEmoji + '</div>' +
+                    '<div class="feed-post__user-info">' +
+                        '<div class="feed-post__nickname">' + safeNick + '</div>' +
+                        '<div class="feed-post__time">' + escapeHtml(post.time) + '</div>' +
+                    '</div>' +
+                    '<button class="feed-post__more" aria-label="더보기">⋯</button>' +
+                '</div>' +
+                '<div class="emoji-art" data-art-id="' + post.id + '">' + artHtml + '</div>' +
+                '<div class="feed-post__actions">' +
+                    '<button class="feed-post__action like-btn ' + (isLiked ? 'feed-post__action--liked' : '') + '" aria-label="좋아요">' +
+                        (isLiked ? '❤️' : '🤍') +
+                    '</button>' +
+                    '<button class="feed-post__action comment-btn" aria-label="댓글">💬</button>' +
+                    '<button class="feed-post__action share-btn" aria-label="공유">📤</button>' +
+                    '<button class="feed-post__action feed-post__action--spacer save-btn ' + (isSaved ? 'feed-post__action--saved' : '') + '" aria-label="저장">' +
+                        (isSaved ? '🔖' : '🏷️') +
+                    '</button>' +
+                '</div>' +
+                '<div class="feed-post__likes">좋아요 <span class="like-count">' + likeCount.toLocaleString() + '</span>개</div>' +
+                '<div class="feed-post__caption"><strong>' + safeNick + '</strong> ' + safeCaption + '</div>';
+
+            // 이모지 리액션 바 추가
+            card.appendChild(createReactionBar(post.id));
+
+            // 좋아요
+            var likeBtn = card.querySelector('.like-btn');
+            var likeCountEl = card.querySelector('.like-count');
+            if (likeBtn) {
+                likeBtn.addEventListener('click', function () {
+                    var nowLiked = toggleLike(post.id);
+                    likeBtn.textContent = nowLiked ? '❤️' : '🤍';
+                    likeBtn.classList.toggle('feed-post__action--liked', nowLiked);
+                    var count = nowLiked ? post.likes + 1 : post.likes;
+                    if (likeCountEl) likeCountEl.textContent = count.toLocaleString();
+                    if (nowLiked) showToast('❤️ 좋아요!', 'success');
+                });
+            }
+
+            // 저장
+            var saveBtn = card.querySelector('.save-btn');
+            if (saveBtn) {
+                saveBtn.addEventListener('click', function () {
+                    var nowSaved = toggleSave(post.id);
+                    saveBtn.textContent = nowSaved ? '🔖' : '🏷️';
+                    saveBtn.classList.toggle('feed-post__action--saved', nowSaved);
+                    showToast(nowSaved ? '🔖 저장됨!' : '🏷️ 저장 해제', nowSaved ? 'success' : 'info');
+                });
+            }
+
+            // 댓글 클릭
+            var commentBtn = card.querySelector('.comment-btn');
+            if (commentBtn) {
+                commentBtn.addEventListener('click', function () {
+                    showToast('💬 이모지로 리액션하세요!', 'info');
+                });
+            }
+
+            // 공유
+            var shareBtn = card.querySelector('.share-btn');
+            if (shareBtn) {
+                shareBtn.addEventListener('click', function () {
+                    showToast('📤 공유 링크가 복사되었습니다!', 'success');
+                });
+            }
+
+            // 이모지 아트 — 싱글 탭: 상세보기, 더블 탭: 좋아요
+            var artArea = card.querySelector('.emoji-art');
+            var lastTap = 0;
+            var tapTimer = null;
+            if (artArea) {
+                artArea.addEventListener('click', function () {
+                    var now = Date.now();
+                    if (now - lastTap < 400) {
+                        // 더블 탭 = 좋아요
+                        clearTimeout(tapTimer);
+                        if (likedPosts.indexOf(post.id) === -1) {
+                            toggleLike(post.id);
+                            likedPosts = getLikedPosts();
+                            if (likeBtn) {
+                                likeBtn.textContent = '❤️';
+                                likeBtn.classList.add('feed-post__action--liked');
+                            }
+                            if (likeCountEl) likeCountEl.textContent = (post.likes + 1).toLocaleString();
+                        }
+                        var heart = document.createElement('span');
+                        heart.className = 'double-tap-heart';
+                        heart.textContent = '❤️';
+                        artArea.appendChild(heart);
+                        setTimeout(function () { heart.remove(); }, 900);
+                        lastTap = 0;
+                    } else {
+                        // 싱글 탭 = 상세보기 (딜레이 후)
+                        lastTap = now;
+                        tapTimer = setTimeout(function () {
+                            openEmojiArtViewer(post.art);
+                            lastTap = 0;
+                        }, 400);
+                    }
+                });
+            }
+
+            return card;
+        }
+
+        // ── 이모지 상세보기 ──
+        function openEmojiViewer(emoji) {
+            var viewer = document.createElement('div');
+            viewer.className = 'emoji-viewer';
+            viewer.innerHTML =
+                '<div class="emoji-viewer__content">' +
+                    '<div class="emoji-viewer__emoji">' + emoji + '</div>' +
+                    '<div class="emoji-viewer__name">' + emoji + '</div>' +
+                    '<div class="emoji-viewer__hint">탭하여 닫기</div>' +
+                '</div>';
+            viewer.addEventListener('click', function () {
+                viewer.classList.add('emoji-viewer--closing');
+                setTimeout(function () { viewer.remove(); }, 200);
+            });
+            document.body.appendChild(viewer);
+        }
+
+        function openEmojiArtViewer(artArray) {
+            var viewer = document.createElement('div');
+            viewer.className = 'emoji-viewer';
+
+            var grid = document.createElement('div');
+            grid.className = 'emoji-viewer__grid';
+
+            artArray.forEach(function (emoji) {
+                var cell = document.createElement('div');
+                cell.className = 'emoji-viewer__grid-cell';
+                cell.textContent = emoji;
+                cell.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    viewer.classList.add('emoji-viewer--closing');
+                    setTimeout(function () {
+                        viewer.remove();
+                        openEmojiViewer(emoji);
+                    }, 200);
+                });
+                grid.appendChild(cell);
+            });
+
+            var hint = document.createElement('div');
+            hint.className = 'emoji-viewer__hint';
+            hint.textContent = '이모지를 탭하면 확대 · 바깥을 탭하면 닫기';
+            hint.style.cssText = 'margin-top:16px;text-align:center';
+
+            var wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center';
+            wrap.appendChild(grid);
+            wrap.appendChild(hint);
+
+            viewer.appendChild(wrap);
+            viewer.addEventListener('click', function (e) {
+                if (e.target === viewer) {
+                    viewer.classList.add('emoji-viewer--closing');
+                    setTimeout(function () { viewer.remove(); }, 200);
+                }
+            });
+            document.body.appendChild(viewer);
+        }
+
+        // ═══════════════════════════════
+        // ── 포스트 생성 모달 ──
+        // ═══════════════════════════════
+        var createModal = document.getElementById('create-modal');
+        var createClose = document.getElementById('create-close');
+        var createTabBtn = document.getElementById('create-tab-btn');
+        var uploadArea = document.getElementById('upload-area');
+        var imageInput = document.getElementById('image-input');
+        var imagePreview = document.getElementById('image-preview');
+        var captionInput = document.getElementById('caption-input');
+        var captionCharCount = document.getElementById('caption-char-count');
+        var createPostBtn = document.getElementById('create-post-btn');
+        var selectedImageData = null;
+
+        function openCreateModal() {
+            if (!createModal) return;
+            createModal.classList.remove('modal-overlay--hidden', 'modal-overlay--closing');
+            selectedImageData = null;
+            if (imagePreview) { imagePreview.classList.remove('image-preview--visible'); imagePreview.src = ''; }
+            if (uploadArea) uploadArea.style.display = '';
+            if (captionInput) captionInput.value = '';
+            if (captionCharCount) captionCharCount.textContent = '0';
+            if (createPostBtn) createPostBtn.disabled = true;
+        }
+
+        function closeCreateModal() {
+            if (!createModal) return;
+            createModal.classList.add('modal-overlay--closing');
+            setTimeout(function () {
+                createModal.classList.add('modal-overlay--hidden');
+                createModal.classList.remove('modal-overlay--closing');
+            }, 200);
+        }
+
+        if (createTabBtn) createTabBtn.addEventListener('click', openCreateModal);
+        if (createClose) createClose.addEventListener('click', closeCreateModal);
+        if (createModal) createModal.addEventListener('click', function (e) {
+            if (e.target === createModal) closeCreateModal();
+        });
+
+        // 이미지 선택
+        if (uploadArea) {
+            uploadArea.addEventListener('click', function () {
+                if (imageInput) imageInput.click();
+            });
+
+            // 드래그 앤 드롭
+            uploadArea.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                uploadArea.classList.add('image-upload-area--dragover');
+            });
+            uploadArea.addEventListener('dragleave', function () {
+                uploadArea.classList.remove('image-upload-area--dragover');
+            });
+            uploadArea.addEventListener('drop', function (e) {
+                e.preventDefault();
+                uploadArea.classList.remove('image-upload-area--dragover');
+                var file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+                if (file) handleImageFile(file);
+            });
+        }
+
+        if (imageInput) {
+            imageInput.addEventListener('change', function () {
+                var file = imageInput.files && imageInput.files[0];
+                if (file) handleImageFile(file);
+            });
+        }
+
+        function handleImageFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showToast('⚠️ 이미지 파일만 업로드할 수 있어요!', 'error');
+                return;
+            }
+            if (file.size > 5 * 1024 * 1024) {
+                showToast('⚠️ 5MB 이하의 이미지만 가능해요!', 'error');
+                return;
+            }
+
+            showToast('📸 이미지 처리 중...', 'info');
+
+            resizeImage(file, 600, function (dataUrl) {
+                if (!dataUrl) {
+                    showToast('⚠️ 이미지 처리에 실패했어요', 'error');
+                    return;
+                }
+                selectedImageData = dataUrl;
+                if (imagePreview) {
+                    imagePreview.src = dataUrl;
+                    imagePreview.classList.add('image-preview--visible');
+                }
+                if (uploadArea) uploadArea.style.display = 'none';
+                if (createPostBtn) createPostBtn.disabled = false;
+                showToast('✅ 이미지 준비 완료!', 'success');
+            });
+        }
+
+        // 캡션 카운터
+        if (captionInput) {
+            captionInput.addEventListener('input', function () {
+                if (captionCharCount) captionCharCount.textContent = captionInput.value.length;
+            });
+        }
+
+        // 포스트 공유
+        if (createPostBtn) {
+            createPostBtn.addEventListener('click', function () {
+                if (!selectedImageData) {
+                    showToast('📸 이미지를 먼저 선택해주세요!', 'error');
+                    return;
+                }
+                var caption = captionInput ? captionInput.value.trim() : '';
+                var post = addUserPost(selectedImageData, caption);
+                if (post) {
+                    showToast('🎉 포스트가 공유되었어요!', 'success');
+                    closeCreateModal();
+                    renderFeed();
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                } else {
+                    showToast('⚠️ 저장 공간이 부족해요. 오래된 포스트를 지워보세요.', 'error');
+                }
+            });
+        }
+
+        // ═══════════════════════════════
+        // ── 온보딩 튜토리얼 ──
+        // ═══════════════════════════════
+        (function initOnboarding() {
+            var ONBOARDING_KEY = 'emojiworld_onboarded';
+            if (localStorage.getItem(ONBOARDING_KEY)) return;
+
+            var steps = [
+                {
+                    emoji: '👋✨',
+                    title: '이모지월드에 오신 걸 환영해요!',
+                    desc: '사진과 이모지로 소통하는\n새로운 소셜 앱이에요 🎉'
+                },
+                {
+                    emoji: '📸',
+                    title: '사진을 올려보세요',
+                    desc: '하단의 ➕ 만들기를 눌러\n사진을 선택하고 공유해보세요!'
+                },
+                {
+                    emoji: '😍❤️🔥',
+                    title: '이모지로 리액션!',
+                    desc: '댓글 대신 이모지로 리액션해요\n포스트 아래의 이모지를 눌러보세요'
+                },
+                {
+                    emoji: '🔍',
+                    title: '이모지 상세보기',
+                    desc: '이모지 아트를 클릭하면 확대!\n개별 이모지도 크게 볼 수 있어요'
+                },
+                {
+                    emoji: '🚀',
+                    title: '준비 완료!',
+                    desc: '이제 이모지월드를 즐겨보세요\n사진과 이모지로 당신의 일상을 공유하세요 💫'
+                }
+            ];
+
+            var currentStep = 0;
+
+            function renderOnboarding() {
+                var existing = document.querySelector('.onboarding');
+                if (existing) existing.remove();
+
+                var step = steps[currentStep];
+                var overlay = document.createElement('div');
+                overlay.className = 'onboarding';
+
+                var dots = '';
+                for (var i = 0; i < steps.length; i++) {
+                    dots += '<div class="onboarding__dot' + (i === currentStep ? ' onboarding__dot--active' : '') + '"></div>';
+                }
+
+                var isLast = currentStep === steps.length - 1;
+                var skipText = currentStep === 0 ? '건너뛰기' : '이전';
+                var nextText = isLast ? '시작하기 🎉' : '다음';
+
+                overlay.innerHTML =
+                    '<div class="onboarding__card">' +
+                        '<span class="onboarding__emoji">' + step.emoji + '</span>' +
+                        '<div class="onboarding__title">' + step.title + '</div>' +
+                        '<div class="onboarding__desc">' + step.desc.replace(/\n/g, '<br>') + '</div>' +
+                        '<div class="onboarding__dots">' + dots + '</div>' +
+                        '<div class="onboarding__actions">' +
+                            '<button class="onboarding__btn onboarding__btn--skip" id="onboard-skip">' + skipText + '</button>' +
+                            '<button class="onboarding__btn onboarding__btn--next" id="onboard-next">' + nextText + '</button>' +
+                        '</div>' +
+                    '</div>';
+
+                document.body.appendChild(overlay);
+
+                document.getElementById('onboard-skip').addEventListener('click', function () {
+                    if (currentStep === 0) {
+                        closeOnboarding(overlay);
+                    } else {
+                        currentStep--;
+                        renderOnboarding();
+                    }
+                });
+
+                document.getElementById('onboard-next').addEventListener('click', function () {
+                    if (isLast) {
+                        closeOnboarding(overlay);
+                    } else {
+                        currentStep++;
+                        renderOnboarding();
+                    }
+                });
+            }
+
+            function closeOnboarding(overlay) {
+                try { localStorage.setItem(ONBOARDING_KEY, '1'); } catch (e) {}
+                overlay.style.animation = 'fadeOut 0.3s ease forwards';
+                setTimeout(function () { overlay.remove(); }, 300);
+                showToast('🎉 이모지월드에 오신 걸 환영해요!', 'success');
+            }
+
+            renderOnboarding();
+        })();
+    </script>
+</body>
+</html>

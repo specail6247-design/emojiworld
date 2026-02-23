@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="이모지월드에 입장하세요! 나만의 이모지 아바타로 시작하는 소셜 이모지 세계.">
+    <meta name="theme-color" content="#0f0c29">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
+    <title>이모지월드 — 로그인</title>
+    <link rel="stylesheet" href="app-common.css">
+</head>
+<body>
+    <!-- Floating Emoji Background -->
+    <div class="floating-emojis" id="floating-bg" aria-hidden="true"></div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Login Card -->
+    <main class="login-page">
+        <div class="login-card glass-card page-enter">
+            <div class="login-card__logo">🌍</div>
+            <h1 class="login-card__title">이모지월드</h1>
+            <p class="login-card__subtitle">나만의 이모지로 세상을 표현하세요</p>
+
+            <form id="login-form" autocomplete="off">
+                <div class="form-group">
+                    <label class="form-label" for="nickname">닉네임</label>
+                    <input
+                        class="form-input"
+                        type="text"
+                        id="nickname"
+                        placeholder="이모지월드에서 사용할 이름"
+                        maxlength="20"
+                        required
+                        autofocus
+                    >
+                    <div class="char-count"><span id="char-count">0</span>/20</div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">나를 표현하는 이모지를 골라주세요</label>
+                    <div class="emoji-picker" id="emoji-picker" role="radiogroup" aria-label="아바타 이모지 선택">
+                    </div>
+                </div>
+
+                <button type="submit" class="login-btn" id="login-btn" disabled>
+                    🚀 이모지월드 입장하기
+                </button>
+            </form>
+
+            <p style="margin-top: 24px; font-size: 0.75rem; color: var(--text-muted);">
+                by David ✨
+            </p>
+        </div>
+    </main>
+
+    <script src="auth.js"></script>
+    <script src="data.js"></script>
+    <script>
+        // 이미 로그인 되어있으면 피드로
+        redirectIfLoggedIn();
+
+        // ── 토스트 ──
+        function showToast(msg, type) {
+            var container = document.getElementById('toast-container');
+            if (!container) return;
+            var toast = document.createElement('div');
+            toast.className = 'toast toast--' + (type || 'info');
+            toast.textContent = msg;
+            container.appendChild(toast);
+            setTimeout(function () {
+                toast.classList.add('toast--out');
+                setTimeout(function () { toast.remove(); }, 300);
+            }, 2500);
+        }
+
+        // ── 떠다니는 이모지 배경 ──
+        (function createFloatingEmojis() {
+            var container = document.getElementById('floating-bg');
+            if (!container) return;
+            var bgEmojis = ['🚀', '✨', '🔥', '🌈', '🐱', '🍕', '🎸', '🏝️', '🎮', '❤️', '💎', '🦄', '🌸', '⭐', '🎶', '🌙'];
+            for (var i = 0; i < 20; i++) {
+                var span = document.createElement('span');
+                span.className = 'floating-emoji';
+                span.textContent = bgEmojis[Math.floor(Math.random() * bgEmojis.length)];
+                span.style.left = Math.random() * 100 + '%';
+                span.style.animationDuration = (8 + Math.random() * 12) + 's';
+                span.style.animationDelay = (Math.random() * 10) + 's';
+                span.style.fontSize = (1.2 + Math.random() * 1.5) + 'rem';
+                container.appendChild(span);
+            }
+        })();
+
+        // ── 이모지 피커 ──
+        var selectedEmoji = null;
+        var pickerEl = document.getElementById('emoji-picker');
+        var loginBtn = document.getElementById('login-btn');
+        var nicknameInput = document.getElementById('nickname');
+        var loginForm = document.getElementById('login-form');
+        var charCount = document.getElementById('char-count');
+
+        if (pickerEl) {
+            EMOJI_AVATARS.forEach(function (emoji) {
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'emoji-picker__option';
+                btn.textContent = emoji;
+                btn.setAttribute('role', 'radio');
+                btn.setAttribute('aria-checked', 'false');
+                btn.setAttribute('aria-label', emoji);
+                btn.addEventListener('click', function () {
+                    document.querySelectorAll('.emoji-picker__option--selected')
+                        .forEach(function (el) {
+                            el.classList.remove('emoji-picker__option--selected');
+                            el.setAttribute('aria-checked', 'false');
+                        });
+                    btn.classList.add('emoji-picker__option--selected');
+                    btn.setAttribute('aria-checked', 'true');
+                    selectedEmoji = emoji;
+                    updateLoginBtn();
+                });
+                pickerEl.appendChild(btn);
+            });
+        }
+
+        // ── 글자 수 카운터 + 로그인 버튼 활성화 ──
+        function updateLoginBtn() {
+            if (!loginBtn || !nicknameInput) return;
+            var len = nicknameInput.value.trim().length;
+            if (charCount) charCount.textContent = len;
+            loginBtn.disabled = !(len > 0 && selectedEmoji);
+        }
+
+        if (nicknameInput) {
+            nicknameInput.addEventListener('input', updateLoginBtn);
+        }
+
+        // ── 로그인 처리 ──
+        if (loginForm) {
+            loginForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+                if (!nicknameInput || !selectedEmoji) return;
+                var nickname = nicknameInput.value.trim();
+                if (!nickname) {
+                    showToast('닉네임을 입력해주세요!', 'error');
+                    return;
+                }
+                if (nickname.length < 2) {
+                    showToast('닉네임은 2글자 이상이어야 해요!', 'error');
+                    return;
+                }
+
+                var success = login(nickname, selectedEmoji);
+                if (success) {
+                    loginBtn.textContent = '✨ 입장 중...';
+                    loginBtn.disabled = true;
+                    showToast('환영합니다, ' + nickname + '님! ' + selectedEmoji, 'success');
+                    setTimeout(function () {
+                        window.location.href = 'feed.html';
+                    }, 800);
+                } else {
+                    showToast('로그인에 실패했어요. 다시 시도해주세요.', 'error');
+                }
+            });
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="이모지월드 점검 전체 기록 - 사이트 이슈 조사 및 디버깅 로그">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔧</text></svg>">
+    <title>EmojiWorld 점검 전체 기록</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        margin: 0;
+        padding: 32px;
+        background: #0b0d12;
+        color: #eef2ff;
+      }
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 16px;
+        font-size: 24px;
+      }
+      h2 {
+        margin: 28px 0 8px;
+        font-size: 18px;
+      }
+      h3 {
+        margin: 16px 0 6px;
+        font-size: 15px;
+      }
+      p {
+        margin: 0 0 12px;
+        line-height: 1.6;
+      }
+      ul {
+        line-height: 1.6;
+        padding-left: 20px;
+      }
+      code {
+        background: #1a1f2e;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      pre {
+        background: #121724;
+        padding: 12px;
+        border-radius: 8px;
+        overflow-x: auto;
+      }
+      .nav-bar {
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        display: flex;
+        gap: 16px;
+      }
+      .nav-bar a {
+        color: #818cf8;
+        text-decoration: none;
+        font-size: 14px;
+      }
+      .nav-bar a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav class="nav-bar" aria-label="페이지 내비게이션">
+        <a href="index.html">🚀 메인으로</a>
+        <a href="summary.html">📋 점검 요약</a>
+      </nav>
+      <h1>EmojiWorld: 지금까지 대화/조사 전체 기록</h1>
+      <p>
+        아래 내용은 "사이트가 안 뜬다" 이슈에 대해 진행한 대화와 조사 내용 전체를 정리한 로그입니다.
+      </p>
+
+      <h2>1) 사용자 요청</h2>
+      <ul>
+        <li>"이거 내 사이트가 안떠!!"</li>
+        <li>"전체적으로 확인해봐"</li>
+        <li>"개발이면 npm run dev + 해당 포트로 접속해줘"</li>
+        <li>"Not found. 라고만 떠!"</li>
+        <li>"지금까지한거 요약해서 말해줘"</li>
+        <li>"그냥 index피일에 전체 진행한거 넣어!!!"</li>
+        <li>"지금까지 대화/조사 내용 전부를 index.html에 넣기"</li>
+      </ul>
+
+      <h2>2) 조사 과정 (파일/로그 확인)</h2>
+      <ul>
+        <li>프로젝트 목록 확인: Next.js 앱 구조 (app/, public/, package.json 등)</li>
+        <li>README 확인: <code>scripts/firebase-startup.sh</code> 안내만 있고 실제 파일 없음</li>
+        <li><code>package.json</code> 확인: <code>dev</code> = <code>next dev</code></li>
+        <li><code>dev.log</code> 확인: 개발 서버 실행 로그 및 <code>/_next/static/*</code> 404 반복</li>
+        <li><code>next.config.mjs</code> 확인: <code>output: "export"</code>, <code>trailingSlash: true</code></li>
+        <li><code>firebase.json</code> 확인: Hosting <code>public: "out"</code> + SPA rewrite</li>
+        <li><code>out/</code> 확인: 정적 내보내기 결과 존재</li>
+        <li>루트 <code>index.html</code> 확인: 0바이트 (빈 파일)</li>
+        <li>Next.js <code>app/page.tsx</code>, <code>app/layout.tsx</code> 확인: 정상 렌더 구조</li>
+      </ul>
+
+      <h2>3) 주요 로그/출력 발췌</h2>
+      <h3>dev.log 핵심</h3>
+      <pre><code>emoji-world@0.1.0 dev
+next dev --port 3001
+Local: http://localhost:3001
+...
+GET /_next/static/css/app/layout.css ... 404
+GET /_next/static/chunks/webpack.js ... 404
+GET /_next/static/chunks/app/page.js ... 404
+GET /_next/static/chunks/main-app.js ... 404
+GET /_next/static/chunks/app/layout.js ... 404
+GET /_next/static/chunks/app-pages-internals.js ... 404</code></pre>
+
+      <h3>firebase-debug.log 핵심</h3>
+      <pre><code>Failed to fetch Firebase Project from Studio Workspace
+because WORKSPACE_SLUG environment variable is empty</code></pre>
+
+      <h2>4) 원인/진단 요약</h2>
+      <ul>
+        <li>
+          <strong>가장 가능성 높은 원인:</strong> 개발 서버 포트가 아닌 다른 주소(예: 기본 80번)
+          로 접속해 <code>/_next/static/*</code> 자원이 404로 빠지는 상황.
+        </li>
+        <li>
+          루트 <code>index.html</code>이 빈 파일이라, 정적으로 루트를 열면 빈 화면.
+        </li>
+        <li>
+          정적 배포는 <code>out/</code> 폴더가 기준인데, 다른 디렉터리를 서빙하면 정상 페이지가 안 뜸.
+        </li>
+        <li>
+          README에 안내된 <code>scripts/firebase-startup.sh</code>가 없음 → 자동 실행/설정 누락 가능성.
+        </li>
+      </ul>
+
+      <h2>5) 안내/제안 내용</h2>
+      <ul>
+        <li>
+          개발 모드에서는 <code>npm run dev</code> 실행 후
+          로그에 표시되는 <code>Local: http://localhost:XXXX</code>로 접속해야 함.
+        </li>
+        <li>
+          Antigravity 환경에서는 Ports 패널에서 해당 포트를 열고 제공 URL로 접속해야 함.
+        </li>
+        <li>
+          필요 시 개발 포트를 80으로 고정하는 방법 제안:
+          <code>next dev -p 80 -H 0.0.0.0</code>
+        </li>
+      </ul>
+
+      <h2>6) 이번 변경</h2>
+      <ul>
+        <li>
+          루트 <code>index.html</code>에 지금까지 대화/조사 내용을 전체 기록 형태로 반영.
+        </li>
+      </ul>
+    </main>
+  </body>
+</html>
