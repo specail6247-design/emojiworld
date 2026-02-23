@@ -5,12 +5,35 @@
 
 const AUTH_KEY = 'emojiworld_user';
 
+/** 입력 안전 처리 — HTML 태그 제거 + 길이 제한 */
+function sanitizeInput(str, maxLen) {
+  if (!str || typeof str !== 'string') return '';
+  // HTML 태그 완전 제거
+  var clean = str.replace(/<[^>]*>/g, '');
+  // 제어 문자 제거 (탭/개행 제외)
+  clean = clean.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  return clean.trim().substring(0, maxLen || 20);
+}
+
+/** 이모지 유효성 검증 */
+function isValidEmoji(emoji) {
+  if (!emoji || typeof emoji !== 'string') return false;
+  // 이모지는 최대 8자(서로게이트 페어 포함) 이하여야 함
+  if (emoji.length > 8) return false;
+  // 스크립트 태그 등 위험 문자열 차단
+  if (/<|>|&|"|'/.test(emoji)) return false;
+  return true;
+}
+
 /** 로그인 처리 */
 function login(nickname, emoji) {
-  if (!nickname || !nickname.trim()) return false;
+  var safeName = sanitizeInput(nickname, 20);
+  if (!safeName || safeName.length < 1) return false;
+  if (!isValidEmoji(emoji)) emoji = '😊';
+  
   const user = {
-    nickname: nickname.trim(),
-    emoji: emoji || '😊',
+    nickname: safeName,
+    emoji: emoji,
     joinedAt: new Date().toISOString(),
     followers: Math.floor(Math.random() * 500) + 50,
     following: Math.floor(Math.random() * 300) + 20,
@@ -44,13 +67,27 @@ function isLoggedIn() {
   }
 }
 
-/** 현재 유저 정보 반환 */
+/** 현재 유저 정보 반환 — 데이터 무결성 검증 포함 */
 function getCurrentUser() {
   try {
     const data = localStorage.getItem(AUTH_KEY);
-    return data ? JSON.parse(data) : null;
+    if (!data) return null;
+    const user = JSON.parse(data);
+    // 필수 필드 검증
+    if (!user || typeof user !== 'object') return null;
+    if (!user.nickname || typeof user.nickname !== 'string') return null;
+    // 저장된 데이터도 재 sanitize
+    user.nickname = sanitizeInput(user.nickname, 20);
+    if (!isValidEmoji(user.emoji)) user.emoji = '😊';
+    // 숫자 필드 안전 처리
+    user.followers = Math.max(0, parseInt(user.followers, 10) || 0);
+    user.following = Math.max(0, parseInt(user.following, 10) || 0);
+    user.posts = Math.max(0, parseInt(user.posts, 10) || 0);
+    return user;
   } catch (e) {
     console.error('[이모지월드] 유저 정보 파싱 실패:', e);
+    // 손상된 데이터 삭제
+    try { localStorage.removeItem(AUTH_KEY); } catch (ex) {}
     return null;
   }
 }

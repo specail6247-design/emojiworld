@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="description" content="이모지월드 피드 — 이모지 아트와 소셜 콘텐츠를 탐색하세요.">
     <meta name="theme-color" content="#0f0c29">
+    <!-- Security Headers -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none';">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
     <title>이모지월드 — 피드</title>
     <link rel="stylesheet" href="app-common.css">
@@ -151,7 +155,8 @@
                 var data = allEmojis[emoji];
                 var btn = document.createElement('button');
                 btn.className = 'reaction-btn' + (data && data.mine ? ' reaction-btn--active' : '');
-                btn.innerHTML = emoji + (data && data.count ? '<span class="reaction-btn__count">' + data.count + '</span>' : '');
+                btn.textContent = emoji;
+                if (data && data.count) { var countEl = document.createElement('span'); countEl.className = 'reaction-btn__count'; countEl.textContent = data.count; btn.appendChild(countEl); }
                 btn.addEventListener('click', function () {
                     var updated = toggleReaction(postId, emoji);
                     refreshReactionBar(postId);
@@ -639,8 +644,10 @@
         }
 
         function handleImageFile(file) {
-            if (!file.type.startsWith('image/')) {
-                showToast('⚠️ 이미지 파일만 업로드할 수 있어요!', 'error');
+            // 허용된 MIME 타입 화이트리스트
+            var ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+            if (ALLOWED_TYPES.indexOf(file.type) === -1) {
+                showToast('⚠️ JPG, PNG, GIF, WEBP만 업로드 가능해요!', 'error');
                 return;
             }
             if (file.size > 5 * 1024 * 1024) {
@@ -648,22 +655,40 @@
                 return;
             }
 
-            showToast('📸 이미지 처리 중...', 'info');
-
-            resizeImage(file, 600, function (dataUrl) {
-                if (!dataUrl) {
-                    showToast('⚠️ 이미지 처리에 실패했어요', 'error');
+            // 매직 바이트 검증 (위장 파일 방지)
+            var headerReader = new FileReader();
+            headerReader.onload = function (he) {
+                var arr = new Uint8Array(he.target.result).subarray(0, 4);
+                var header = '';
+                for (var i = 0; i < arr.length; i++) {
+                    header += arr[i].toString(16).padStart(2, '0');
+                }
+                // JPEG: ffd8ff, PNG: 89504e47, GIF: 47494638, WEBP: 52494646
+                var valid = /^ffd8ff/.test(header) || /^89504e47/.test(header) ||
+                            /^47494638/.test(header) || /^52494646/.test(header);
+                if (!valid) {
+                    showToast('⚠️ 유효하지 않은 이미지 파일이에요!', 'error');
                     return;
                 }
-                selectedImageData = dataUrl;
-                if (imagePreview) {
-                    imagePreview.src = dataUrl;
-                    imagePreview.classList.add('image-preview--visible');
-                }
-                if (uploadArea) uploadArea.style.display = 'none';
-                if (createPostBtn) createPostBtn.disabled = false;
-                showToast('✅ 이미지 준비 완료!', 'success');
-            });
+
+                showToast('📸 이미지 처리 중...', 'info');
+
+                resizeImage(file, 600, function (dataUrl) {
+                    if (!dataUrl) {
+                        showToast('⚠️ 이미지 처리에 실패했어요', 'error');
+                        return;
+                    }
+                    selectedImageData = dataUrl;
+                    if (imagePreview) {
+                        imagePreview.src = dataUrl;
+                        imagePreview.classList.add('image-preview--visible');
+                    }
+                    if (uploadArea) uploadArea.style.display = 'none';
+                    if (createPostBtn) createPostBtn.disabled = false;
+                    showToast('✅ 이미지 준비 완료!', 'success');
+                });
+            };
+            headerReader.readAsArrayBuffer(file.slice(0, 4));
         }
 
         // 캡션 카운터
@@ -680,7 +705,9 @@
                     showToast('📸 이미지를 먼저 선택해주세요!', 'error');
                     return;
                 }
-                var caption = captionInput ? captionInput.value.trim() : '';
+                var rawCaption = captionInput ? captionInput.value.trim() : '';
+                // 캡션 sanitize (HTML 태그 제거, 길이 제한)
+                var caption = sanitizeInput(rawCaption, 200);
                 var post = addUserPost(selectedImageData, caption);
                 if (post) {
                     showToast('🎉 포스트가 공유되었어요!', 'success');
